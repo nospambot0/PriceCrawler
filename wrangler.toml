@@ -8,4 +8,4 @@ crons = ["*/3 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "pricecrawler-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "6669a5c1-6551-4f8f-9e31-83983a7bd88a"
