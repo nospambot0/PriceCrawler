@@ -130,7 +130,7 @@ async function handleApi(request, env, url) {
     validProvider(input.provider);
     const game = String(input.game || "demo_lobby");
     const title = encodeURIComponent(game.replaceAll("_", " ").replace(/^demo /i, ""));
-    const demoUrl = `https://example.com/?demo_game=${title}`;
+    const demoUrl = `${url.origin}/demo-game?game=${title}`;
     return json({ ok: true, demo: true, launch_url: demoUrl });
   }
 
@@ -201,6 +201,19 @@ export default {
     const url = new URL(request.url);
 
     try {
+      if (isDemo(env) && url.pathname === "/demo-game") {
+        const game = url.searchParams.get("game") || "Demo Game";
+        const safeGame = game.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+        return new Response(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeGame}</title><style>
+          *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#10141c;color:#eef2f7;min-height:100vh;display:grid;place-items:center}
+          .game{width:min(92vw,520px);padding:32px;border:1px solid #30394b;border-radius:20px;background:#1a202b;text-align:center;box-shadow:0 20px 60px #0008}
+          .icon{font-size:64px;margin-bottom:12px}.badge{display:inline-block;padding:6px 12px;border-radius:99px;background:#f5b700;color:#171200;font-weight:800;font-size:12px}
+          h1{margin:16px 0 8px;font-size:28px}.muted{color:#9aa5b7}.table{margin:24px 0;padding:28px;border-radius:16px;background:#11161f;border:1px solid #30394b}
+          button{border:0;border-radius:10px;padding:13px 22px;background:#f5b700;color:#171200;font-weight:800;font-size:16px}
+        </style></head><body><main class="game"><div class="icon">🎰</div><span class="badge">DEMO MODE</span><h1>${safeGame}</h1><p class="muted">This is a play-money demonstration game.</p><div class="table"><div style="font-size:42px">♠️ ♥️ ♦️ ♣️</div><p class="muted">No real-money gambling or external casino API is connected.</p><button onclick="alert('Demo only — no real wager was placed.')">Play Demo Round</button></div></main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+
+      if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
         return await handleApi(request, env, url);
       }
