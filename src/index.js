@@ -468,7 +468,7 @@ export default {
 
       const message = url.searchParams.get("scan_error")
         ? "Fresh scan failed, so the last available deals are shown."
-        : (!url.searchParams.get("view") && !env.DEALS_SOURCE_URL
+        : (!url.searchParams.get("view") && !env.DEALS_SOURCE_URL && !env.SCRAPERAPI_KEY
           ? "No scraper is connected yet. Add the SCRAPERAPI_KEY secret in Cloudflare."
           : "");
 
