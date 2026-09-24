@@ -4,21 +4,29 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 
-const fallback = [
-  ['Lightning Roulette', 'Evolution', '⚡', 'lightning-roulette'],
-  ['Live Blackjack', 'Evolution', '🃏', 'live-blackjack'],
-  ['Live Baccarat', 'Evolution', '♦️', 'live-baccarat'],
-  ['Crazy Time', 'Evolution', '🎡', 'crazy-time'],
-  ['Live Roulette', 'Pragmatic Play', '🎯', 'live-roulette'],
-  ['Live Casino VIP', 'Cassanova', '👑', 'live-casino-vip'],
+type LiveGame = {
+  _id?: string;
+  slug: string;
+  title: string;
+  provider: string;
+  thumbnail?: string;
+};
+
+const fallback: LiveGame[] = [
+  { title: 'Lightning Roulette', provider: 'Evolution', thumbnail: '⚡', slug: 'lightning-roulette' },
+  { title: 'Live Blackjack', provider: 'Evolution', thumbnail: '🃏', slug: 'live-blackjack' },
+  { title: 'Live Baccarat', provider: 'Evolution', thumbnail: '♦️', slug: 'live-baccarat' },
+  { title: 'Crazy Time', provider: 'Evolution', thumbnail: '🎡', slug: 'crazy-time' },
+  { title: 'Live Roulette', provider: 'Pragmatic Play', thumbnail: '🎯', slug: 'live-roulette' },
+  { title: 'Live Casino VIP', provider: 'Cassanova', thumbnail: '👑', slug: 'live-casino-vip' },
 ];
 
 export default function LiveCasinoPage() {
-  const [games, setGames] = useState<any[]>(fallback.map(([title, provider, thumbnail, slug]) => ({ title, provider, thumbnail, slug })));
+  const [games, setGames] = useState<LiveGame[]>(fallback);
 
   useEffect(() => {
     api.games.getAll({ category: 'live-casino' }).then((data) => {
-      if (Array.isArray(data) && data.length) setGames(data);
+      if (Array.isArray(data) && data.length) setGames(data as LiveGame[]);
     }).catch(() => {});
   }, []);
 
