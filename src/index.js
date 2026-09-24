@@ -191,6 +191,60 @@ async function fetchFlipkart(env, queries) {
   return all;
 }
 
+
+async function runDiagnostics(env) {
+  const result = {
+    scraperApi: { status: env.SCRAPERAPI_KEY ? "configured" : "missing", detail: env.SCRAPERAPI_KEY ? "Secret detected by Worker" : "SCRAPERAPI_KEY is not available to this deployment" },
+    amazon: { status: "not tested", detail: "Waiting for ScraperAPI" },
+    flipkart: { status: "not tested", detail: "Waiting for ScraperAPI" }
+  };
+
+  if (!env.SCRAPERAPI_KEY) return result;
+
+  // Lightweight live connectivity checks. Never expose the API key.
+  try {
+    const u = new URL("https://api.scraperapi.com/structured/amazon/search");
+    u.searchParams.set("api_key", env.SCRAPERAPI_KEY);
+    u.searchParams.set("query", "iphone");
+    u.searchParams.set("country_code", "in");
+    u.searchParams.set("tld", "in");
+    u.searchParams.set("output_format", "json");
+    const r = await fetch(u.toString());
+    if (!r.ok) {
+      result.amazon = { status: "error", detail: "ScraperAPI HTTP " + r.status };
+    } else {
+      let data = {};
+      try { data = await r.json(); } catch (_) {}
+      const count = Array.isArray(data?.results) ? data.results.length : 0;
+      result.amazon = {
+        status: count > 0 ? "ok" : "connected",
+        detail: count > 0 ? count + " Amazon results received" : "ScraperAPI responded, but returned 0 Amazon results"
+      };
+    }
+  } catch (e) {
+    result.amazon = { status: "error", detail: e.message };
+  }
+
+  try {
+    const target = "https://www.flipkart.com/search?q=" + encodeURIComponent("iphone");
+    const r = await fetch(new URL("https://api.scraperapi.com/?api_key=" + encodeURIComponent(env.SCRAPERAPI_KEY) + "&url=" + encodeURIComponent(target) + "&country_code=in&render=true"));
+    if (!r.ok) {
+      result.flipkart = { status: "error", detail: "ScraperAPI HTTP " + r.status };
+    } else {
+      const body = await r.text();
+      const products = extractJsonLdProducts(body);
+      result.flipkart = {
+        status: products.length > 0 ? "ok" : "connected",
+        detail: products.length > 0 ? products.length + " Flipkart products parsed" : "ScraperAPI responded, but no structured Flipkart products were parsed"
+      };
+    }
+  } catch (e) {
+    result.flipkart = { status: "error", detail: e.message };
+  }
+
+  return result;
+}
+
 async function fetchSource(env) {
   if (env.DEALS_SOURCE_URL) {
     const r = await fetch(env.DEALS_SOURCE_URL, {
@@ -352,10 +406,21 @@ function renderCard(d) {
   </article>`;
 }
 
-function renderApp(deals, savedOnly, message = "") {
+function renderApp(deals, savedOnly, message = "", diagnostics = null) {
   const cards = deals.length
     ? deals.map(renderCard).join("")
     : `<div class="empty">${esc(message || (savedOnly ? "No saved deals yet." : "No deals found."))}</div>`;
+  const diagnosticHtml = diagnostics ? `
+    <section class="diagnostics">
+      <div class="diag-title">System Diagnostics</div>
+      <div class="diag-grid">
+        <div class="diag-item"><b>Worker</b><span class="ok">● Online</span><small>Cloudflare Worker is responding</small></div>
+        <div class="diag-item"><b>Cloudflare D1</b><span class="${diagnostics.db ? "ok" : "bad"}">● ${diagnostics.db ? "Connected" : "Unavailable"}</span><small>${diagnostics.db ? "Database binding detected" : "DB binding is missing"}</small></div>
+        <div class="diag-item"><b>ScraperAPI</b><span class="${diagnostics.scraperApi.status === "configured" ? "ok" : "bad"}">● ${esc(diagnostics.scraperApi.status)}</span><small>${esc(diagnostics.scraperApi.detail)}</small></div>
+        <div class="diag-item"><b>Amazon.in</b><span class="${diagnostics.amazon.status === "ok" ? "ok" : diagnostics.amazon.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.amazon.status)}</span><small>${esc(diagnostics.amazon.detail)}</small></div>
+        <div class="diag-item"><b>Flipkart</b><span class="${diagnostics.flipkart.status === "ok" ? "ok" : diagnostics.flipkart.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.flipkart.status)}</span><small>${esc(diagnostics.flipkart.detail)}</small></div>
+      </div>
+    </section>` : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -390,6 +455,14 @@ main{padding:8px 18px 30px;max-width:900px;margin:auto}
 .toolbar{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
 .scan{display:inline-block;border:0;border-radius:10px;padding:11px 14px;background:#fff;color:#0b0d10;font-weight:800;text-decoration:none}
 .note{font-size:11px;color:#737d89}
+.diagnostics{margin:8px 0 18px;padding:14px;border:1px solid #242932;border-radius:16px;background:#101318}
+.diag-title{font-weight:800;font-size:15px;margin-bottom:10px}
+.diag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.diag-item{padding:11px;border:1px solid #252a31;border-radius:12px;background:#15181d}
+.diag-item b{display:block;font-size:13px;margin-bottom:4px}
+.diag-item span{font-size:12px;font-weight:800}
+.diag-item small{display:block;color:#7f8995;font-size:11px;margin-top:4px;line-height:1.35}
+.ok{color:#48d597}.warn{color:#f2c14e}.bad{color:#ff6b6b}
 </style>
 </head>
 <body>
@@ -407,6 +480,7 @@ main{padding:8px 18px 30px;max-width:900px;margin:auto}
   <a class="tab ${savedOnly ? "active" : ""}" href="/?view=saved">Saved</a>
 </nav>
 <main>
+  ${diagnosticHtml}
   <div class="grid">${cards}</div>
 </main>
 </body>
@@ -457,14 +531,15 @@ export default {
 
       const savedOnly = url.searchParams.get("view") === "saved";
       let deals = [];
+      let diagnostics;
 
-      // Always attempt a fresh scan when the page is opened.
-      // A source failure never prevents the existing database/deals from rendering.
       try {
         await scan(env);
       } catch (_) {}
 
       deals = await getDeals(env,savedOnly);
+      diagnostics = await runDiagnostics(env);
+      diagnostics.db = Boolean(env.DB);
 
       const message = url.searchParams.get("scan_error")
         ? "Fresh scan failed, so the last available deals are shown."
@@ -472,7 +547,7 @@ export default {
           ? "No scraper is connected yet. Add the SCRAPERAPI_KEY secret in Cloudflare."
           : "");
 
-      return new Response(renderApp(deals,savedOnly,message),{
+      return new Response(renderApp(deals,savedOnly,message,diagnostics),{
         headers:{
           "content-type":"text/html; charset=utf-8",
           "cache-control":"no-store,no-cache,must-revalidate,max-age=0",
