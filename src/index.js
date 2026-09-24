@@ -160,8 +160,8 @@ main{padding:8px 18px 30px;max-width:900px;margin:auto}.grid{display:grid;grid-t
 </style></head>
 <body>
 <header><h1>PriceCrawler</h1><div class="sub">Automatic pricing-error & deal radar</div><div class="status"><span class="dot"></span><span id="status">Live scanner</span></div>
-<div class="toolbar"><button class="scan" onclick="scanNow()">↻ Scan Now</button><span id="last">Auto-scans every 3 minutes</span></div></header>
-<nav><button class="tab active" id="liveBtn" onclick="show('live')">Live Deals</button><button class="tab" id="savedBtn" onclick="show('saved')">Saved</button></nav>
+<div class="toolbar"><button class="scan" id="scanBtn" type="button">↻ Scan Now</button><span id="last">Auto-scans every 3 minutes</span></div></header>
+<nav><button class="tab active" id="liveBtn" type="button">Live Deals</button><button class="tab" id="savedBtn" type="button">Saved</button></nav>
 <main><div id="grid" class="grid"></div></main>
 <script>
 let mode='live';
@@ -203,7 +203,13 @@ async function scanNow(){
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function saveDeal(id){await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deal_id:id})});load();}
 function show(x){mode=x;document.getElementById('liveBtn').classList.toggle('active',x==='live');document.getElementById('savedBtn').classList.toggle('active',x==='saved');load();}
-load(); setInterval(load,180000);
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('scanBtn').addEventListener('click',scanNow);
+  document.getElementById('liveBtn').addEventListener('click',()=>show('live'));
+  document.getElementById('savedBtn').addEventListener('click',()=>show('saved'));
+  load();
+});
+setInterval(load,180000);
 </script></body></html>`;
 
 export default {
