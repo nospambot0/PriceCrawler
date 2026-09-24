@@ -28,6 +28,10 @@ export default function GameDetailPage() {
   const [error, setError] = useState('');
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const [showGame, setShowGame] = useState(false);
+  const [demoResult, setDemoResult] = useState('Place a demo bet to start the round.');
+  const [demoBet, setDemoBet] = useState(10);
+  const [demoCredits, setDemoCredits] = useState(1000);
 
   useEffect(() => {
     const fetchGameData = async () => {
@@ -87,12 +91,42 @@ export default function GameDetailPage() {
   }, [params.slug, isAuthenticated, token, user]);
 
   const handlePlayGame = (mode: 'real' | 'demo') => {
+    if (!game) return;
     if (mode === 'real' && !isAuthenticated) {
       router.push('/login');
       return;
     }
-    // In a real app, this would launch the game
-    alert(`Launching ${game?.title} in ${mode} mode!`);
+    if (game._id.startsWith('demo-') || game.launchUrl === '#') {
+      setDemoCredits(1000);
+      setDemoResult('Dealer is ready. Place your demo bet.');
+      setShowGame(true);
+      return;
+    }
+    window.open(game.launchUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const playDemoRound = () => {
+    if (demoBet <= 0 || demoBet > demoCredits) {
+      setDemoResult('Choose a demo bet within your available demo credits.');
+      return;
+    }
+    const slug = game?.slug || '';
+    const win = Math.random() >= 0.52;
+    const winAmount = slug.includes('roulette') ? demoBet * 2 : demoBet;
+    const nextCredits = Math.max(0, demoCredits + (win ? winAmount : -demoBet));
+    setDemoCredits(nextCredits);
+    if (slug.includes('roulette')) {
+      const number = Math.floor(Math.random() * 37);
+      setDemoResult(win ? 'Roulette landed on ' + number + '. Demo win +$' + winAmount + '.' : 'Roulette landed on ' + number + '. Demo loss -$' + demoBet + '.');
+    } else if (slug.includes('baccarat')) {
+      setDemoResult(win ? 'Player wins the demo round.' : 'Banker wins the demo round.');
+    } else if (slug.includes('blackjack')) {
+      setDemoResult(win ? 'You win the demo blackjack hand.' : 'Dealer wins the demo blackjack hand.');
+    } else if (slug.includes('crazy-time')) {
+      setDemoResult(win ? 'Bonus wheel hit! Demo win.' : 'Wheel result: no demo win this round.');
+    } else {
+      setDemoResult(win ? 'Demo round won!' : 'Demo round lost.');
+    }
   };
 
   const handleToggleFavorite = async () => {
@@ -232,6 +266,34 @@ export default function GameDetailPage() {
                 </div>
               </div>
             </div>
+
+            {showGame && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="w-full max-w-3xl bg-gray-900 border border-purple-500/40 rounded-2xl shadow-2xl overflow-hidden">
+                  <div className="flex items-center justify-between p-5 border-b border-white/10">
+                    <div>
+                      <h2 className="text-2xl font-bold text-white">{game.title}</h2>
+                      <p className="text-sm text-gray-400">Live-style demo • Virtual credits only</p>
+                    </div>
+                    <button onClick={() => setShowGame(false)} className="text-gray-300 hover:text-white text-2xl" aria-label="Close game">×</button>
+                  </div>
+                  <div className="p-8 text-center">
+                    <div className="text-8xl mb-6">{game.thumbnail}</div>
+                    <div className="text-3xl font-bold text-yellow-400 mb-2">DEMO TABLE</div>
+                    <div className="text-gray-300 mb-6">{demoResult}</div>
+                    <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
+                      <span className="text-gray-400">Demo credits:</span>
+                      <span className="text-white font-bold text-xl">{demoCredits.toFixed(0)}</span>
+                      <input type="number" min="1" max={demoCredits} value={demoBet} onChange={(e) => setDemoBet(Number(e.target.value))} className="w-28 rounded-lg bg-gray-800 border border-white/10 px-3 py-2 text-white" aria-label="Demo bet amount" />
+                    </div>
+                    <button onClick={playDemoRound} disabled={demoCredits <= 0} className="w-full md:w-auto px-10 py-4 rounded-xl bg-yellow-500 text-gray-950 font-bold hover:bg-yellow-400 disabled:opacity-50">
+                      Deal / Spin
+                    </button>
+                    <p className="mt-5 text-xs text-gray-500">Demo mode only. No real-money wager or payout is processed.</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Similar Games */}
             {similarGames.length > 0 && (
