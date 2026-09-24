@@ -32,6 +32,9 @@ function money(n, currency = "INR") {
   }
 }
 
+const MIN_DEAL_DISCOUNT_PCT = 50;
+const MIN_DEAL_SCORE = MIN_DEAL_DISCOUNT_PCT * 2;
+
 const DEFAULT_QUERIES = [
   "iphone",
   "laptop",
@@ -119,6 +122,7 @@ function extractJsonLdProducts(html) {
               products.push({
                 title: p.name,
                 price,
+                typical_price: numberFromPrice(offers?.highPrice ?? p.highPrice ?? p.mrp),
                 url: p.url || offers.url,
                 image_url: Array.isArray(p.image) ? p.image[0] : p.image,
                 store: "Flipkart",
@@ -162,6 +166,7 @@ async function fetchAmazon(env, queries) {
         title: item.name,
         store: "Amazon",
         price,
+        typical_price: numberFromPrice(item.list_price ?? item.rrp ?? item.mrp ?? item.strikethrough_price),
         currency: "INR",
         url: item.url,
         image_url: item.image || null
@@ -386,12 +391,14 @@ async function getDeals(env, savedOnly = false) {
   const query = savedOnly
     ? `SELECT d.*, 1 AS saved
        FROM deals d INNER JOIN saved_deals s ON s.deal_id=d.id
+       WHERE d.score >= ?
        ORDER BY d.score DESC,d.updated_at DESC`
     : `SELECT d.*, CASE WHEN s.deal_id IS NULL THEN 0 ELSE 1 END AS saved
        FROM deals d LEFT JOIN saved_deals s ON s.deal_id=d.id
+       WHERE d.score >= ?
        ORDER BY d.score DESC,d.updated_at DESC`;
 
-  const { results } = await env.DB.prepare(query).all();
+  const { results } = await env.DB.prepare(query).bind(MIN_DEAL_SCORE).all();
   return results || [];
 }
 
@@ -421,7 +428,7 @@ function renderCard(d) {
 function renderApp(deals, savedOnly, message = "", diagnostics = null) {
   const cards = deals.length
     ? deals.map(renderCard).join("")
-    : `<div class="empty">${esc(message || (savedOnly ? "No saved deals yet." : "No deals found."))}</div>`;
+    : `<div class="empty">${esc(message || (savedOnly ? "No saved deals yet." : "No deals at 50%+ below typical price yet."))}</div>`;
   const diagnosticHtml = diagnostics ? `
     <section class="diagnostics">
       <div class="diag-title">System Diagnostics</div>
