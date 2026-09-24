@@ -2,6 +2,8 @@ import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import User from './models/User';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -36,8 +38,32 @@ app.get('/api/health', (req: Request, res: Response) => {
 // Database connection
 mongoose
   .connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('Connected to MongoDB');
+
+    // Optional demo-user seed. Enable with SEED_DEMO_USER=true and provide
+    // DEMO_USER_EMAIL / DEMO_USER_PASSWORD in the hosting environment.
+    if (process.env.SEED_DEMO_USER === 'true') {
+      const email = process.env.DEMO_USER_EMAIL;
+      const password = process.env.DEMO_USER_PASSWORD;
+      if (email && password) {
+        const existing = await User.findOne({ email });
+        if (!existing) {
+          const username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+          const hashedPassword = await bcrypt.hash(password, 10);
+          await User.create({
+            username,
+            email,
+            password: hashedPassword,
+            isVerified: true,
+          });
+          console.log(`Demo user created: ${email}`);
+        } else {
+          console.log(`Demo user already exists: ${email}`);
+        }
+      }
+    }
+
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
