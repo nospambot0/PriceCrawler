@@ -1,89 +1,47 @@
-/**
- * Cloudflare Worker backend for the FiversCan/NexusGGR lobby.
- * Credentials are Cloudflare Worker secrets:
- * FVS_API_URL, FVS_AGENT_CODE, FVS_AGENT_TOKEN
- */
-const CATALOG_TTL = 300;
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function validUser(value) {
-  const user = String(value || "");
-  if (!/^[A-Za-z0-9_]{1,32}$/.test(user)) throw new Error("user must be 1-32 chars of [A-Za-z0-9_]");
-  return user;
-}
-
-function validProvider(value) {
-  const provider = String(value || "");
-  if (!/^[A-Za-z0-9_]{1,32}$/.test(provider)) throw new Error("provider is required");
-  return provider;
-}
-
 const DEMO_PROVIDERS = [
   { code: "DEMO_LIVE", name: "Demo Live Casino", status: 1 },
   { code: "DEMO_SLOTS", name: "Demo Slots", status: 1 },
-  { code: "DEMO_TABLE", name: "Demo Table Games", status: 1 },
+  { code: "DEMO_TABLE", name: "Demo Table Games", status: 1 }
 ];
 
 const DEMO_GAMES = {
   DEMO_LIVE: [
     { game_code: "demo_roulette", game_name: "Demo Roulette", status: 1 },
     { game_code: "demo_blackjack", game_name: "Demo Blackjack", status: 1 },
-    { game_code: "demo_baccarat", game_name: "Demo Baccarat", status: 1 },
+    { game_code: "demo_baccarat", game_name: "Demo Baccarat", status: 1 }
   ],
   DEMO_SLOTS: [
     { game_code: "demo_slots_1", game_name: "Demo Fruit Slots", status: 1 },
     { game_code: "demo_slots_2", game_name: "Demo Lucky 7", status: 1 },
-    { game_code: "demo_slots_3", game_name: "Demo Treasure", status: 1 },
+    { game_code: "demo_slots_3", game_name: "Demo Treasure", status: 1 }
   ],
   DEMO_TABLE: [
     { game_code: "demo_poker", game_name: "Demo Poker", status: 1 },
-    { game_code: "demo_dice", game_name: "Demo Dice", status: 1 },
-  ],
+    { game_code: "demo_dice", game_name: "Demo Dice", status: 1 }
+  ]
 };
 
 function isDemo(env) {
   return String(env.DEMO_MODE ?? "true").toLowerCase() !== "false";
 }
 
-async function fiversCall(env, method, params = {}) {
-  if (isDemo(env)) throw new Error("Demo mode does not call FiversCan");
-  if (!env.FVS_API_URL || !env.FVS_AGENT_CODE || !env.FVS_AGENT_TOKEN) {
-    throw new Error("FiversCan credentials are not configured");
-  }
-
-  const res = await fetch(env.FVS_API_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      method,
-      agent_code: env.FVS_AGENT_CODE,
-      agent_token: env.FVS_AGENT_TOKEN,
-      ...params,
-    }),
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
   });
-
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error(`${method}: invalid API response`); }
-
-  if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
-  if (data.status !== 1) throw new Error(data.msg || `${method} failed`);
-  return data;
 }
 
-async function cachedCatalog(request, env, key, loader) {
-  // Demo mode intentionally avoids the Cloudflare Cache API so the demo works
-  // immediately on every Worker deployment.
-  return json(await loader());
+function validUser(value) {
+  const user = String(value || "");
+  if (!/^[A-Za-z0-9_]{1,32}$/.test(user)) throw new Error("Invalid user");
+  return user;
+}
+
+function validProvider(value) {
+  const provider = String(value || "");
+  if (!/^[A-Za-z0-9_]{1,32}$/.test(provider)) throw new Error("Invalid provider");
+  return provider;
 }
 
 async function handleApi(request, env, url) {
@@ -91,371 +49,101 @@ async function handleApi(request, env, url) {
   let input = Object.fromEntries(url.searchParams.entries());
 
   if (request.method === "POST") {
-    const contentType = request.headers.get("content-type") || "";
-    input = contentType.includes("application/json")
-      ? (await request.json().catch(() => ({})))
-      : Object.fromEntries(await request.formData());
+    input = await request.json().catch(() => ({}));
   }
 
-  if (isDemo(env) && action === "providers" && request.method === "GET") {
-    return json({ ok: true, demo: true, providers: DEMO_PROVIDERS });
-  }
-
-  if (isDemo(env) && action === "games" && request.method === "GET") {
-    const provider = validProvider(input.provider);
-    return json({ ok: true, demo: true, games: DEMO_GAMES[provider] || [] });
-  }
-
-  if (isDemo(env) && action === "balance" && request.method === "GET") {
-    validUser(input.user);
-    return json({ ok: true, demo: true, agent_balance: 100000, user_balance: 1000 });
-  }
-
-  if (isDemo(env) && action === "deposit" && request.method === "POST") {
-    validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    return json({ ok: true, demo: true, agent_balance: 100000 - amount, user_balance: 1000 + amount });
-  }
-
-  if (isDemo(env) && action === "withdraw" && request.method === "POST") {
-    validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    return json({ ok: true, demo: true, agent_balance: 100000 + amount, user_balance: Math.max(0, 1000 - amount) });
-  }
-
-  if (isDemo(env) && action === "launch" && request.method === "POST") {
-    validUser(input.user);
-    validProvider(input.provider);
-    const game = String(input.game || "demo_lobby");
-    const title = encodeURIComponent(game.replaceAll("_", " ").replace(/^demo /i, ""));
-    const demoUrl = `${url.origin}/demo-game?game=${title}`;
-    return json({ ok: true, demo: true, launch_url: demoUrl });
-  }
-
-  if (action === "providers" && request.method === "GET") {
-    return cachedCatalog(request, env, "providers", async () => ({
-      ok: true,
-      providers: (await fiversCall(env, "provider_list")).providers || [],
-    }));
-  }
-
-  if (action === "games" && request.method === "GET") {
-    const provider = validProvider(input.provider);
-    return cachedCatalog(request, env, `games-${provider}`, async () => ({
-      ok: true,
-      games: (await fiversCall(env, "game_list", { provider_code: provider })).games || [],
-    }));
-  }
-
-  if (action === "balance" && request.method === "GET") {
-    const user = validUser(input.user);
-    try {
-      const info = await fiversCall(env, "money_info", { user_code: user });
-      return json({ ok: true, agent_balance: info.agent?.balance ?? 0, user_balance: info.user?.balance ?? 0 });
-    } catch (e) {
-      if (/invalid user/i.test(e.message)) {
-        const info = await fiversCall(env, "money_info");
-        return json({ ok: true, agent_balance: info.agent?.balance ?? 0, user_balance: 0, new_user: true });
-      }
-      throw e;
+  if (isDemo(env)) {
+    if (action === "providers" && request.method === "GET") {
+      return json({ ok: true, demo: true, providers: DEMO_PROVIDERS });
     }
+
+    if (action === "games" && request.method === "GET") {
+      const provider = validProvider(input.provider);
+      return json({ ok: true, demo: true, games: DEMO_GAMES[provider] || [] });
+    }
+
+    if (action === "balance" && request.method === "GET") {
+      validUser(input.user);
+      return json({ ok: true, demo: true, agent_balance: 100000, user_balance: 1000 });
+    }
+
+    if ((action === "deposit" || action === "withdraw") && request.method === "POST") {
+      validUser(input.user);
+      const amount = Number(input.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return json({ ok: false, error: "Invalid amount" }, 400);
+      return json({ ok: true, demo: true, agent_balance: 100000, user_balance: action === "deposit" ? 1000 + amount : Math.max(0, 1000 - amount) });
+    }
+
+    if (action === "launch" && request.method === "POST") {
+      validUser(input.user);
+      validProvider(input.provider);
+      const game = String(input.game || "demo_game");
+      return json({ ok: true, demo: true, launch_url: url.origin + "/demo-game?game=" + encodeURIComponent(game) });
+    }
+
+    return json({ ok: false, error: "Unknown demo action" }, 404);
   }
 
-  if (action === "launch") {
-    if (request.method !== "POST") return json({ ok: false, error: "POST required" }, 405);
-    const user = validUser(input.user);
-    const provider = validProvider(input.provider);
-    const game = String(input.game || "");
-    const lang = /^[a-z]{2}(-[a-z]{2,4})?$/i.test(String(input.lang || "")) ? String(input.lang) : "en";
-    const lobby = `${url.origin}/`;
-    const data = await fiversCall(env, "game_launch", {
-      user_code: user,
-      provider_code: provider,
-      game_code: game,
-      lang,
-      lobby_url: lobby,
-    });
-    const launchUrl = data.launch_url;
-    if (!/^https?:\/\//i.test(launchUrl || "")) throw new Error("game service returned an invalid launch URL");
-    return json({ ok: true, launch_url: launchUrl });
-  }
-
-  if (action === "deposit" || action === "withdraw") {
-    if (request.method !== "POST") return json({ ok: false, error: "POST required" }, 405);
-    const user = validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0) || !Number.isFinite(amount)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    const sign = `${action === "deposit" ? "dep" : "wd"}_${user}_${crypto.randomUUID().replaceAll("-", "")}`;
-    const method = action === "deposit" ? "user_deposit" : "user_withdraw";
-    const data = await fiversCall(env, method, { user_code: user, amount, agent_sign: sign });
-    return json({ ok: true, agent_balance: data.agent_balance, user_balance: data.user_balance });
-  }
-
-  return json({ ok: false, error: "unknown action" }, 404);
+  return json({ ok: false, error: "Demo mode only. Configure the FiversCan API before enabling live mode." }, 503);
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-
-    try {
-      if (isDemo(env) && url.pathname === "/demo-game") {
-        const game = url.searchParams.get("game") || "Demo Game";
-        const safeGame = game.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-        return new Response(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeGame}</title><style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#10141c;color:#eef2f7;min-height:100vh;display:grid;place-items:center;padding:18px}
-.game{width:min(94vw,560px);padding:24px;border:1px solid #30394b;border-radius:20px;background:#1a202b;text-align:center;box-shadow:0 20px 60px #0008}.badge{display:inline-block;padding:6px 12px;border-radius:99px;background:#f5b700;color:#171200;font-weight:800;font-size:12px}
-h1{margin:12px 0 4px;font-size:28px}.muted{color:#9aa5b7}.score{display:flex;justify-content:space-between;gap:10px;margin:18px 0}.score div{flex:1;padding:10px;border:1px solid #30394b;border-radius:12px;background:#11161f}
-.cards{min-height:88px;margin:10px 0 18px;padding:12px;border-radius:14px;background:#11161f;border:1px solid #30394b;font-size:34px;letter-spacing:5px}.label{font-size:12px;color:#9aa5b7;display:block;margin-bottom:6px}
-.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.actions button{border:0;border-radius:10px;padding:13px 20px;background:#f5b700;color:#171200;font-weight:800;font-size:16px}.actions button:disabled{opacity:.4}.status{min-height:28px;margin:14px 0;font-weight:700}
-</style></head><body><main class="game"><span class="badge">DEMO MODE • PLAY MONEY</span><h1>${safeGame}</h1><p class="muted">Blackjack demo — no real money or external casino API.</p>
-<div class="score"><div><span class="label">DEALER</span><strong id="dealerScore">—</strong></div><div><span class="label">PLAYER</span><strong id="playerScore">—</strong></div></div>
-<div class="label">Dealer cards</div><div id="dealerCards" class="cards">—</div><div class="label">Your cards</div><div id="playerCards" class="cards">—</div>
-<div id="status" class="status">Tap Deal to start</div><div class="actions"><button id="deal" type="button">Deal</button><button id="hit" type="button" disabled>Hit</button><button id="stand" type="button" disabled>Stand</button></div></main>
+function demoGameHtml(game) {
+  const title = game.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  return `<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10141c;color:#eef2f7;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;display:grid;place-items:center;padding:18px}
+.game{width:min(94vw,560px);padding:24px;border:1px solid #30394b;border-radius:20px;background:#1a202b;text-align:center;box-shadow:0 20px 60px #0008}
+.badge{display:inline-block;padding:6px 12px;border-radius:99px;background:#f5b700;color:#171200;font-weight:800;font-size:12px}
+h1{margin:12px 0 4px}.muted{color:#9aa5b7}.score{display:flex;gap:10px;margin:18px 0}.score div{flex:1;padding:12px;border:1px solid #30394b;border-radius:12px;background:#11161f}
+.label{display:block;font-size:12px;color:#9aa5b7;margin-bottom:6px}.cards{min-height:72px;margin:8px 0 18px;padding:16px;border-radius:14px;background:#11161f;border:1px solid #30394b;font-size:30px;letter-spacing:3px}
+.actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}.actions button{border:0;border-radius:10px;padding:13px 22px;background:#f5b700;color:#171200;font-weight:800;font-size:16px}.actions button:disabled{opacity:.4}.status{min-height:28px;margin:14px 0;font-weight:700}
+</style></head><body><main class="game">
+<span class="badge">DEMO MODE • PLAY MONEY</span><h1>${title}</h1><p class="muted">Blackjack demonstration. No real money or external casino API.</p>
+<div class="score"><div><span class="label">DEALER</span><strong id="ds">—</strong></div><div><span class="label">PLAYER</span><strong id="ps">—</strong></div></div>
+<span class="label">Dealer cards</span><div id="dc" class="cards">—</div>
+<span class="label">Your cards</span><div id="pc" class="cards">—</div>
+<div id="st" class="status">Tap Deal to start</div>
+<div class="actions"><button id="deal" type="button">Deal</button><button id="hit" type="button" disabled>Hit</button><button id="stand" type="button" disabled>Stand</button></div>
+</main>
 <script>
 (function(){
-const ranks=["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
-let deck=[],player=[],dealer=[],over=true;
+const ranks=["A","2","3","4","5","6","7","8","9","10","J","Q","K"];let deck=[],p=[],d=[],done=true;
 const $=id=>document.getElementById(id);
-function newDeck(){deck=[];for(let s=0;s<4;s++)for(const r of ranks)deck.push(r);for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];}}
-function draw(){return deck.pop();}
-function value(hand){let total=0,aces=0;for(const r of hand){if(r==="A"){total+=11;aces++;}else total+=["J","Q","K"].includes(r)?10:Number(r)}while(total>21&&aces--)total-=10;return total}
-function render(){ $("playerCards").textContent=player.join("  "); $("dealerCards").textContent=over?dealer.join("  "):(dealer.length?"🂠  "+dealer.slice(1).join("  "):"—"); $("playerScore").textContent=value(player)||"—"; $("dealerScore").textContent=over?value(dealer):"—"; }
-function finish(msg){over=true;$("status").textContent=msg;$("hit").disabled=true;$("stand").disabled=true;$("deal").disabled=false;render();}
-function dealerPlay(){while(value(dealer)<17)dealer.push(draw());const p=value(player),d=value(dealer);if(d>21)finish("Dealer busts — you win!");else if(p>d)finish("You win!");else if(p<d)finish("Dealer wins.");else finish("Push — tie.");}
-function deal(){newDeck();player=[draw(),draw()];dealer=[draw(),draw()];over=false;$("deal").disabled=true;$("hit").disabled=false;$("stand").disabled=false;$("status").textContent="Hit or Stand";render();if(value(player)===21)dealerPlay();}
-$("deal").onclick=deal;
-$("hit").onclick=()=>{if(over)return;player.push(draw());if(value(player)>21)finish("Bust — dealer wins.");else if(value(player)===21)dealerPlay();else{render();}};
-$("stand").onclick=()=>{if(over)return;dealerPlay();};
+function shuffle(){deck=[];for(let s=0;s<4;s++)for(const r of ranks)deck.push(r);for(let i=deck.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]]}}
+function draw(){return deck.pop()}
+function val(h){let n=0,a=0;for(const r of h){if(r==="A"){n+=11;a++}else n+=["J","Q","K"].includes(r)?10:Number(r)}while(n>21&&a--)n-=10;return n}
+function render(){ $("pc").textContent=p.join("  ")||"—";$("dc").textContent=done?d.join("  "):(d.length?"🂠  "+d.slice(1).join("  "):"—");$("ps").textContent=val(p)||"—";$("ds").textContent=done?val(d):"—"}
+function finish(msg){done=true;$("st").textContent=msg;$("hit").disabled=true;$("stand").disabled=true;$("deal").disabled=false;render()}
+function dealer(){while(val(d)<17)d.push(draw());let a=val(p),b=val(d);if(b>21)finish("Dealer busts — you win!");else if(a>b)finish("You win!");else if(a<b)finish("Dealer wins.");else finish("Push — tie.")}
+$("deal").onclick=()=>{shuffle();p=[draw(),draw()];d=[draw(),draw()];done=false;$("deal").disabled=true;$("hit").disabled=false;$("stand").disabled=false;$("st").textContent="Hit or Stand";render();if(val(p)===21)dealer()};
+$("hit").onclick=()=>{if(done)return;p.push(draw());if(val(p)>21)finish("Bust — dealer wins.");else if(val(p)===21)dealer();else render()};
+$("stand").onclick=()=>{if(!done)dealer()};
 render();
 })();
-</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });udflare Worker backend for the FiversCan/NexusGGR lobby.
- * Credentials are Cloudflare Worker secrets:
- * FVS_API_URL, FVS_AGENT_CODE, FVS_AGENT_TOKEN
- */
-const CATALOG_TTL = 300;
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function validUser(value) {
-  const user = String(value || "");
-  if (!/^[A-Za-z0-9_]{1,32}$/.test(user)) throw new Error("user must be 1-32 chars of [A-Za-z0-9_]");
-  return user;
-}
-
-function validProvider(value) {
-  const provider = String(value || "");
-  if (!/^[A-Za-z0-9_]{1,32}$/.test(provider)) throw new Error("provider is required");
-  return provider;
-}
-
-const DEMO_PROVIDERS = [
-  { code: "DEMO_LIVE", name: "Demo Live Casino", status: 1 },
-  { code: "DEMO_SLOTS", name: "Demo Slots", status: 1 },
-  { code: "DEMO_TABLE", name: "Demo Table Games", status: 1 },
-];
-
-const DEMO_GAMES = {
-  DEMO_LIVE: [
-    { game_code: "demo_roulette", game_name: "Demo Roulette", status: 1 },
-    { game_code: "demo_blackjack", game_name: "Demo Blackjack", status: 1 },
-    { game_code: "demo_baccarat", game_name: "Demo Baccarat", status: 1 },
-  ],
-  DEMO_SLOTS: [
-    { game_code: "demo_slots_1", game_name: "Demo Fruit Slots", status: 1 },
-    { game_code: "demo_slots_2", game_name: "Demo Lucky 7", status: 1 },
-    { game_code: "demo_slots_3", game_name: "Demo Treasure", status: 1 },
-  ],
-  DEMO_TABLE: [
-    { game_code: "demo_poker", game_name: "Demo Poker", status: 1 },
-    { game_code: "demo_dice", game_name: "Demo Dice", status: 1 },
-  ],
-};
-
-function isDemo(env) {
-  return String(env.DEMO_MODE ?? "true").toLowerCase() !== "false";
-}
-
-async function fiversCall(env, method, params = {}) {
-  if (isDemo(env)) throw new Error("Demo mode does not call FiversCan");
-  if (!env.FVS_API_URL || !env.FVS_AGENT_CODE || !env.FVS_AGENT_TOKEN) {
-    throw new Error("FiversCan credentials are not configured");
-  }
-
-  const res = await fetch(env.FVS_API_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      method,
-      agent_code: env.FVS_AGENT_CODE,
-      agent_token: env.FVS_AGENT_TOKEN,
-      ...params,
-    }),
-  });
-
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error(`${method}: invalid API response`); }
-
-  if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
-  if (data.status !== 1) throw new Error(data.msg || `${method} failed`);
-  return data;
-}
-
-async function cachedCatalog(request, env, key, loader) {
-  // Demo mode intentionally avoids the Cloudflare Cache API so the demo works
-  // immediately on every Worker deployment.
-  return json(await loader());
-}
-
-async function handleApi(request, env, url) {
-  const action = url.searchParams.get("action") || url.pathname.split("/").pop();
-  let input = Object.fromEntries(url.searchParams.entries());
-
-  if (request.method === "POST") {
-    const contentType = request.headers.get("content-type") || "";
-    input = contentType.includes("application/json")
-      ? (await request.json().catch(() => ({})))
-      : Object.fromEntries(await request.formData());
-  }
-
-  if (isDemo(env) && action === "providers" && request.method === "GET") {
-    return json({ ok: true, demo: true, providers: DEMO_PROVIDERS });
-  }
-
-  if (isDemo(env) && action === "games" && request.method === "GET") {
-    const provider = validProvider(input.provider);
-    return json({ ok: true, demo: true, games: DEMO_GAMES[provider] || [] });
-  }
-
-  if (isDemo(env) && action === "balance" && request.method === "GET") {
-    validUser(input.user);
-    return json({ ok: true, demo: true, agent_balance: 100000, user_balance: 1000 });
-  }
-
-  if (isDemo(env) && action === "deposit" && request.method === "POST") {
-    validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    return json({ ok: true, demo: true, agent_balance: 100000 - amount, user_balance: 1000 + amount });
-  }
-
-  if (isDemo(env) && action === "withdraw" && request.method === "POST") {
-    validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    return json({ ok: true, demo: true, agent_balance: 100000 + amount, user_balance: Math.max(0, 1000 - amount) });
-  }
-
-  if (isDemo(env) && action === "launch" && request.method === "POST") {
-    validUser(input.user);
-    validProvider(input.provider);
-    const game = String(input.game || "demo_lobby");
-    const title = encodeURIComponent(game.replaceAll("_", " ").replace(/^demo /i, ""));
-    const demoUrl = `${url.origin}/demo-game?game=${title}`;
-    return json({ ok: true, demo: true, launch_url: demoUrl });
-  }
-
-  if (action === "providers" && request.method === "GET") {
-    return cachedCatalog(request, env, "providers", async () => ({
-      ok: true,
-      providers: (await fiversCall(env, "provider_list")).providers || [],
-    }));
-  }
-
-  if (action === "games" && request.method === "GET") {
-    const provider = validProvider(input.provider);
-    return cachedCatalog(request, env, `games-${provider}`, async () => ({
-      ok: true,
-      games: (await fiversCall(env, "game_list", { provider_code: provider })).games || [],
-    }));
-  }
-
-  if (action === "balance" && request.method === "GET") {
-    const user = validUser(input.user);
-    try {
-      const info = await fiversCall(env, "money_info", { user_code: user });
-      return json({ ok: true, agent_balance: info.agent?.balance ?? 0, user_balance: info.user?.balance ?? 0 });
-    } catch (e) {
-      if (/invalid user/i.test(e.message)) {
-        const info = await fiversCall(env, "money_info");
-        return json({ ok: true, agent_balance: info.agent?.balance ?? 0, user_balance: 0, new_user: true });
-      }
-      throw e;
-    }
-  }
-
-  if (action === "launch") {
-    if (request.method !== "POST") return json({ ok: false, error: "POST required" }, 405);
-    const user = validUser(input.user);
-    const provider = validProvider(input.provider);
-    const game = String(input.game || "");
-    const lang = /^[a-z]{2}(-[a-z]{2,4})?$/i.test(String(input.lang || "")) ? String(input.lang) : "en";
-    const lobby = `${url.origin}/`;
-    const data = await fiversCall(env, "game_launch", {
-      user_code: user,
-      provider_code: provider,
-      game_code: game,
-      lang,
-      lobby_url: lobby,
-    });
-    const launchUrl = data.launch_url;
-    if (!/^https?:\/\//i.test(launchUrl || "")) throw new Error("game service returned an invalid launch URL");
-    return json({ ok: true, launch_url: launchUrl });
-  }
-
-  if (action === "deposit" || action === "withdraw") {
-    if (request.method !== "POST") return json({ ok: false, error: "POST required" }, 405);
-    const user = validUser(input.user);
-    const amount = Number(input.amount);
-    if (!(amount > 0) || !Number.isFinite(amount)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
-    const sign = `${action === "deposit" ? "dep" : "wd"}_${user}_${crypto.randomUUID().replaceAll("-", "")}`;
-    const method = action === "deposit" ? "user_deposit" : "user_withdraw";
-    const data = await fiversCall(env, method, { user_code: user, amount, agent_sign: sign });
-    return json({ ok: true, agent_balance: data.agent_balance, user_balance: data.user_balance });
-  }
-
-  return json({ ok: false, error: "unknown action" }, 404);
+</script></body></html>`;
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
     try {
       if (isDemo(env) && url.pathname === "/demo-game") {
-        const game = url.searchParams.get("game") || "Demo Game";
-        const safeGame = game.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-        return new Response(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeGame}</title><style>
-          *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#10141c;color:#eef2f7;min-height:100vh;display:grid;place-items:center}
-          .game{width:min(92vw,520px);padding:32px;border:1px solid #30394b;border-radius:20px;background:#1a202b;text-align:center;box-shadow:0 20px 60px #0008}
-          .icon{font-size:64px;margin-bottom:12px}.badge{display:inline-block;padding:6px 12px;border-radius:99px;background:#f5b700;color:#171200;font-weight:800;font-size:12px}
-          h1{margin:16px 0 8px;font-size:28px}.muted{color:#9aa5b7}.table{margin:24px 0;padding:28px;border-radius:16px;background:#11161f;border:1px solid #30394b}
-          button{border:0;border-radius:10px;padding:13px 22px;background:#f5b700;color:#171200;font-weight:800;font-size:16px}
-        </style></head><body><main class="game"><div class="icon">🎰</div><span class="badge">DEMO MODE</span><h1>${safeGame}</h1><p class="muted">This is a play-money demonstration game.</p><div class="table"><div style="font-size:42px">♠️ ♥️ ♦️ ♣️</div><p class="muted">No real-money gambling or external casino API is connected.</p><button onclick="alert('Demo only — no real wager was placed.')">Play Demo Round</button></div></main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        return new Response(demoGameHtml(url.searchParams.get("game") || "Demo Blackjack"), {
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+        });
       }
 
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
         return await handleApi(request, env, url);
       }
 
-      // Keep the frontend assets on the same Worker. Requires the ASSETS binding from wrangler.toml.
       if (env.ASSETS) return env.ASSETS.fetch(request);
-
-      return new Response("Worker is online. Configure static assets.", { status: 200 });
+      return new Response("Worker is online.", { status: 200 });
     } catch (e) {
       console.error(e);
-      return json({ ok: false, error: e instanceof Error ? e.message : "internal error" }, 502);
+      return json({ ok: false, error: e instanceof Error ? e.message : "Internal error" }, 500);
     }
-  },
+  }
 };
