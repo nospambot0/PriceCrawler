@@ -72,6 +72,10 @@ async function initDb(env) {
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_deals_score ON deals(score DESC)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_history_deal ON price_history(deal_id, captured_at DESC)`)
   ]);
+  // One-time cleanup for demo records from earlier builds.
+  await env.DB.prepare("DELETE FROM price_history WHERE deal_id IN ('demo-airpods-pro','demo-samsung-tv')").run();
+  await env.DB.prepare("DELETE FROM saved_deals WHERE deal_id IN ('demo-airpods-pro','demo-samsung-tv')").run();
+  await env.DB.prepare("DELETE FROM deals WHERE id IN ('demo-airpods-pro','demo-samsung-tv')").run();
 }
 
 async function seedDemoIfEmpty(env) {
