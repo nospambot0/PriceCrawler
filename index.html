@@ -79,7 +79,7 @@
   <script>
     // ---- api.php helper: GET with ?query or POST a JSON body; resolves {ok:true,...}, throws on {ok:false,error} ----
     async function api(action, { query = {}, body } = {}) {
-      const url = `api.php?${new URLSearchParams({ action, ...query })}`;
+      const path = `/api/${encodeURIComponent(action)}`;\n      const queryString = new URLSearchParams(query).toString();\n      const url = `${path}${queryString ? `?${queryString}` : ''}`;
       const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
       const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
       if (!data.ok) throw new Error(data.error + (data.detail ? ` (${data.detail})` : ''));
@@ -159,11 +159,16 @@
     function gameCard(g) {
       const card = document.createElement('article');
       card.className = 'card' + (g.status === 0 ? ' card-off' : '');
-      const img = document.createElement('img');
-      img.loading = 'lazy';
-      img.alt = '';
-      img.src = g.banner || '';
-      img.onerror = () => { img.remove(); card.classList.add('card-noimg'); };
+      if (g.banner) {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.alt = '';
+        img.src = g.banner;
+        img.onerror = () => { img.remove(); card.classList.add('card-noimg'); };
+        card.appendChild(img);
+      } else {
+        card.classList.add('card-noimg');
+      }
       const name = document.createElement('h3');
       name.textContent = typeof g.game_name === 'object' ? (g.game_name.en || Object.values(g.game_name)[0]) : (g.game_name || g.game_code);
       const code = document.createElement('small');
@@ -173,7 +178,7 @@
       play.textContent = g.status === 0 ? 'Maintenance' : 'Play';
       play.disabled = g.status === 0;
       play.onclick = () => launch(g, name.textContent);
-      card.append(img, name, code, play);
+      card.append(name, code, play);
       return card;
     }
 
