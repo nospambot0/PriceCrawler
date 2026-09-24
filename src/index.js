@@ -32,14 +32,190 @@ function money(n, currency = "INR") {
   }
 }
 
-async function fetchSource(env) {
-  if (!env.DEALS_SOURCE_URL) return [];
-  const r = await fetch(env.DEALS_SOURCE_URL, {
-    headers: { "accept": "application/json", "cache-control": "no-cache" }
+const DEFAULT_QUERIES = [
+  "iphone",
+  "laptop",
+  "headphones",
+  "smartwatch",
+  "television",
+  "gaming",
+  "air conditioner",
+  "washing machine"
+];
+
+function getQueries(env) {
+  return String(env.PRICE_QUERIES || DEFAULT_QUERIES.join(","))
+    .split(",")
+    .map(x => x.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+async function scraperRequest(env, targetUrl, extra = {}) {
+  if (!env.SCRAPERAPI_KEY) {
+    throw new Error("SCRAPERAPI_KEY is not configured in Cloudflare");
+  }
+
+  const u = new URL("https://api.scraperapi.com/");
+  u.searchParams.set("api_key", env.SCRAPERAPI_KEY);
+  u.searchParams.set("url", targetUrl);
+
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined && value !== null && value !== "") {
+      u.searchParams.set(key, String(value));
+    }
+  }
+
+  const response = await fetch(u.toString(), {
+    headers: { "accept": "*/*" }
   });
-  if (!r.ok) throw new Error("Deal source returned " + r.status);
-  const data = await r.json();
-  return Array.isArray(data) ? data : (Array.isArray(data.deals) ? data.deals : []);
+
+  if (!response.ok) {
+    throw new Error("ScraperAPI returned HTTP " + response.status);
+  }
+
+  return response.text();
+}
+
+function numberFromPrice(value) {
+  if (value == null) return null;
+  const cleaned = String(value).replace(/[^0-9.]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function extractJsonLdProducts(html) {
+  const products = [];
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\\s\\S]*?)<\/script>/gi;
+  let m;
+
+  while ((m = re.exec(html))) {
+    try {
+      const data = JSON.parse(m[1].trim());
+      const list = Array.isArray(data) ? data : [data];
+
+      for (const item of list) {
+        if (item?.["@type"] === "Product") {
+          const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+          const price = numberFromPrice(offers?.price ?? item.price);
+          if (item.name && price && offers?.url) {
+            products.push({
+              title: item.name,
+              price,
+              url: offers.url,
+              image_url: Array.isArray(item.image) ? item.image[0] : item.image,
+              store: "Flipkart",
+              currency: offers.priceCurrency || "INR"
+            });
+          }
+        }
+
+        if (item?.itemListElement && Array.isArray(item.itemListElement)) {
+          for (const entry of item.itemListElement) {
+            const p = entry.item;
+            const offers = Array.isArray(p?.offers) ? p.offers[0] : p?.offers;
+            const price = numberFromPrice(offers?.price);
+            if (p?.name && price && (p.url || offers?.url)) {
+              products.push({
+                title: p.name,
+                price,
+                url: p.url || offers.url,
+                image_url: Array.isArray(p.image) ? p.image[0] : p.image,
+                store: "Flipkart",
+                currency: offers.priceCurrency || "INR"
+              });
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  return products;
+}
+
+async function fetchAmazon(env, queries) {
+  if (!env.SCRAPERAPI_KEY) return [];
+
+  const all = [];
+
+  for (const query of queries) {
+    const u = new URL("https://api.scraperapi.com/structured/amazon/search");
+    u.searchParams.set("api_key", env.SCRAPERAPI_KEY);
+    u.searchParams.set("query", query);
+    u.searchParams.set("country_code", "in");
+    u.searchParams.set("tld", "in");
+    u.searchParams.set("output_format", "json");
+
+    const response = await fetch(u.toString());
+    if (!response.ok) continue;
+
+    let data;
+    try { data = await response.json(); } catch (_) { continue; }
+
+    for (const item of (data?.results || [])) {
+      const price = numberFromPrice(item.price);
+      if (!item?.name || !price || !item?.url) continue;
+
+      all.push({
+        id: item.asin ? "amazon-" + item.asin : undefined,
+        title: item.name,
+        store: "Amazon",
+        price,
+        currency: "INR",
+        url: item.url,
+        image_url: item.image || null
+      });
+    }
+  }
+
+  return all;
+}
+
+async function fetchFlipkart(env, queries) {
+  if (!env.SCRAPERAPI_KEY) return [];
+
+  const all = [];
+
+  for (const query of queries) {
+    const target = "https://www.flipkart.com/search?q=" + encodeURIComponent(query);
+    try {
+      const html = await scraperRequest(env, target, {
+        country_code: "in",
+        render: "true"
+      });
+      all.push(...extractJsonLdProducts(html));
+    } catch (_) {}
+  }
+
+  return all;
+}
+
+async function fetchSource(env) {
+  if (env.DEALS_SOURCE_URL) {
+    const r = await fetch(env.DEALS_SOURCE_URL, {
+      headers: { "accept": "application/json", "cache-control": "no-cache" }
+    });
+    if (!r.ok) throw new Error("Deal source returned " + r.status);
+    const data = await r.json();
+    return Array.isArray(data) ? data : (Array.isArray(data.deals) ? data.deals : []);
+  }
+
+  if (!env.SCRAPERAPI_KEY) return [];
+
+  const queries = getQueries(env);
+  const [amazon, flipkart] = await Promise.all([
+    fetchAmazon(env, queries),
+    fetchFlipkart(env, queries)
+  ]);
+
+  const unique = new Map();
+  for (const item of [...amazon, ...flipkart]) {
+    const key = item.id || item.url;
+    if (key && !unique.has(key)) unique.set(key, item);
+  }
+
+  return [...unique.values()];
 }
 
 async function initDb(env) {
@@ -98,7 +274,18 @@ async function scan(env) {
     const previous = raw.previous_price == null ? null : Number(raw.previous_price);
     const score = scoreDeal(price, typical);
 
-    const old = await env.DB.prepare("SELECT price FROM deals WHERE id = ?").bind(id).first();
+    const old = await env.DB.prepare("SELECT price, typical_price FROM deals WHERE id = ?").bind(id).first();
+
+    const historical = old?.price ? Number(old.price) : null;
+    const suppliedTypical = raw.typical_price == null ? null : Number(raw.typical_price);
+    const effectiveTypical = suppliedTypical && suppliedTypical > price
+      ? suppliedTypical
+      : (historical && historical > price ? historical : price);
+    const effectivePrevious = previous != null
+      ? previous
+      : historical;
+
+    const score = scoreDeal(price, effectiveTypical);
 
     await env.DB.prepare(`INSERT INTO deals
       (id,title,store,price,previous_price,typical_price,currency,url,image_url,detected_at,updated_at,score)
@@ -109,7 +296,7 @@ async function scan(env) {
         currency=excluded.currency, url=excluded.url, image_url=excluded.image_url,
         updated_at=excluded.updated_at, score=excluded.score`)
       .bind(
-        id,String(raw.title),String(raw.store),price,previous,typical,
+        id,String(raw.title),String(raw.store),price,effectivePrevious,effectiveTypical,
         String(raw.currency || "INR"),String(raw.url),raw.image_url || null,
         now,now,score
       ).run();
@@ -121,7 +308,11 @@ async function scan(env) {
     }
   }
 
-  return { count: items.length, demo: !env.DEALS_SOURCE_URL };
+  return {
+    count: items.length,
+    sources: [...new Set(items.map(x => x.store).filter(Boolean))],
+    configured: Boolean(env.SCRAPERAPI_KEY || env.DEALS_SOURCE_URL)
+  };
 }
 
 async function getDeals(env, savedOnly = false) {
@@ -279,7 +470,7 @@ export default {
       const message = url.searchParams.get("scan_error")
         ? "Fresh scan failed, so the last available deals are shown."
         : (!url.searchParams.get("view") && !env.DEALS_SOURCE_URL
-          ? "No price source is connected yet. Add DEALS_SOURCE_URL to start showing real deals."
+          ? "No scraper is connected yet. Add the SCRAPERAPI_KEY secret in Cloudflare."
           : "");
 
       return new Response(renderApp(deals,savedOnly,message),{
