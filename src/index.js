@@ -77,7 +77,7 @@ async function scan(env) {
         updated_at=excluded.updated_at, score=excluded.score`)
       .bind(id, String(raw.title), String(raw.store), price, previous, typical,
         String(raw.currency || "INR"), String(raw.url), raw.image_url || null,
-        old ? undefined : now, now, score).run();
+        now, now, score).run();
 
     if (!old || Number(old.price) !== price) {
       await env.DB.prepare("INSERT INTO price_history (deal_id,price,captured_at) VALUES (?,?,?)")
@@ -160,7 +160,7 @@ main{padding:8px 18px 30px;max-width:900px;margin:auto}.grid{display:grid;grid-t
 </style></head>
 <body>
 <header><h1>PriceCrawler</h1><div class="sub">Automatic pricing-error & deal radar</div><div class="status"><span class="dot"></span><span id="status">Live scanner</span></div>
-<div class="toolbar"><button class="scan" id="scanBtn" type="button">↻ Scan Now</button><span id="last">Auto-scans every 3 minutes</span></div></header>
+<div class="toolbar"><a class="scan" href="/api/scan?redirect=1">↻ Scan Now</a><span id="last">Auto-scans every 3 minutes</span></div></header>
 <nav><button class="tab active" id="liveBtn" type="button">Live Deals</button><button class="tab" id="savedBtn" type="button">Saved</button></nav>
 <main><div id="grid" class="grid"></div></main>
 <script>
@@ -204,7 +204,6 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 async function saveDeal(id){await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deal_id:id})});load();}
 function show(x){mode=x;document.getElementById('liveBtn').classList.toggle('active',x==='live');document.getElementById('savedBtn').classList.toggle('active',x==='saved');load();}
 document.addEventListener('DOMContentLoaded',()=>{
-  document.getElementById('scanBtn').addEventListener('click',scanNow);
   document.getElementById('liveBtn').addEventListener('click',()=>show('live'));
   document.getElementById('savedBtn').addEventListener('click',()=>show('saved'));
   load();
@@ -221,7 +220,12 @@ export default {
         await seedDemoIfEmpty(env);
         return json(await getDeals(env, url.searchParams.get("view")==="saved"));
       }
-      if (url.pathname === "/api/scan" && (request.method === "POST" || request.method === "GET")) return json(await scan(env));
+      if (url.pathname === "/api/scan" && request.method === "POST") return json(await scan(env));
+      if (url.pathname === "/api/scan" && request.method === "GET") {
+        const result = await scan(env);
+        if (url.searchParams.get("redirect") === "1") return Response.redirect(new URL("/?scan=1", request.url), 302);
+        return json(result);
+      }
       if (url.pathname === "/api/save" && request.method === "POST") {
         const { deal_id } = await request.json();
         if (!env.DB) return json({ ok:true });
