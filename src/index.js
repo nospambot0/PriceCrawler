@@ -87,6 +87,38 @@ async function scan(env) {
   return { count: items.length, demo: !env.DEALS_SOURCE_URL };
 }
 
+async function initDb(env) {
+  if (!env.DB) return;
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS deals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      store TEXT NOT NULL,
+      price REAL NOT NULL,
+      previous_price REAL,
+      typical_price REAL,
+      currency TEXT NOT NULL DEFAULT 'INR',
+      url TEXT NOT NULL,
+      image_url TEXT,
+      detected_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      score REAL NOT NULL DEFAULT 0
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deal_id TEXT NOT NULL,
+      price REAL NOT NULL,
+      captured_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS saved_deals (
+      deal_id TEXT PRIMARY KEY,
+      saved_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_deals_score ON deals(score DESC)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_history_deal ON price_history(deal_id, captured_at DESC)`)
+  ]);
+}
+
 async function getDeals(env, savedOnly = false) {
   if (!env.DB) return DEMO_DEALS.map(x => ({ ...x, score: scoreDeal(x.price, x.typical_price), saved: false }));
   const query = savedOnly
@@ -109,18 +141,22 @@ nav{display:flex;gap:8px;padding:12px 18px}.tab{border:1px solid #252a31;backgro
 main{padding:8px 18px 30px;max-width:900px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 .card{background:#13161b;border:1px solid #242932;border-radius:18px;overflow:hidden}.pic{width:100%;height:170px;object-fit:cover;background:#20242b}.body{padding:15px}.store{font-size:12px;color:#8f99a5;text-transform:uppercase;letter-spacing:.08em}.title{font-size:17px;font-weight:700;margin:7px 0 12px}.price{font-size:25px;font-weight:800}.old{text-decoration:line-through;color:#777f89;font-size:13px;margin-left:6px}.deal{display:inline-block;margin-top:8px;padding:5px 8px;border-radius:8px;background:#173c2f;color:#63e6a9;font-size:12px;font-weight:700}
 .actions{display:flex;gap:8px;margin-top:14px}.btn{flex:1;padding:10px;border-radius:10px;border:1px solid #303640;background:#1b1f25;color:#fff;text-decoration:none;text-align:center;font-weight:600;cursor:pointer}.buy{background:#fff;color:#0b0d10}
-.empty{padding:40px 10px;text-align:center;color:#89929e}
+.empty{padding:40px 10px;text-align:center;color:#89929e}.toolbar{display:flex;align-items:center;gap:10px;margin-top:14px}.scan{border:0;border-radius:10px;padding:10px 14px;background:#fff;color:#0b0d10;font-weight:800}.toolbar span{font-size:11px;color:#737d89}
 </style></head>
 <body>
-<header><h1>PriceCrawler</h1><div class="sub">Automatic pricing-error & deal radar</div><div class="status"><span class="dot"></span><span id="status">Live scanner</span></div></header>
+<header><h1>PriceCrawler</h1><div class="sub">Automatic pricing-error & deal radar</div><div class="status"><span class="dot"></span><span id="status">Live scanner</span></div>
+<div class="toolbar"><button class="scan" onclick="scanNow()">↻ Scan Now</button><span id="last">Auto-scans every 3 minutes</span></div></header>
 <nav><button class="tab active" id="liveBtn" onclick="show('live')">Live Deals</button><button class="tab" id="savedBtn" onclick="show('saved')">Saved</button></nav>
 <main><div id="grid" class="grid"></div></main>
 <script>
 let mode='live';
 const money = (n,c='INR') => new Intl.NumberFormat('en-IN',{style:'currency',currency:c,maximumFractionDigits:0}).format(n);
 async function load(){
-  const r=await fetch('/api/deals?view='+mode); const data=await r.json();
-  const grid=document.getElementById('grid');
+  try {
+    const r=await fetch('/api/deals?view='+mode);
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error || 'Unable to load deals');
+    const grid=document.getElementById('grid');
   if(!data.length){grid.innerHTML='<div class="empty">No deals yet. The scanner will populate this page automatically.</div>';return;}
   grid.innerHTML=data.map(d=>{
     const pct=d.typical_price?Math.max(0,Math.round((d.typical_price-d.price)/d.typical_price*100)):0;
@@ -131,6 +167,23 @@ async function load(){
       '<button class="btn" onclick="saveDeal(\''+esc(d.id)+'\')">'+(d.saved?'Saved':'Save')+'</button>'+
       '<a class="btn buy" href="'+esc(d.url)+'" target="_blank" rel="noopener">View Deal</a></div></div></article>';
   }).join('');
+  } catch(e) {
+    document.getElementById('grid').innerHTML='<div class="empty">Scanner is connected, but the database needs initialization. Tap <b>Scan Now</b> once.</div>';
+    document.getElementById('status').textContent='Waiting for first scan';
+  }
+}
+async function scanNow(){
+  const b=document.querySelector('.scan'); b.disabled=true; b.textContent='Scanning…';
+  try {
+    const r=await fetch('/api/scan',{method:'POST'});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error || 'Scan failed');
+    document.getElementById('last').textContent='Last scan: '+new Date().toLocaleTimeString();
+    document.getElementById('status').textContent='Live scanner';
+    await load();
+  } catch(e) {
+    document.getElementById('status').textContent='Scan error: '+e.message;
+  } finally { b.disabled=false; b.textContent='↻ Scan Now'; }
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function saveDeal(id){await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deal_id:id})});load();}
@@ -142,6 +195,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      await initDb(env);
       if (url.pathname === "/api/deals") return json(await getDeals(env, url.searchParams.get("view")==="saved"));
       if (url.pathname === "/api/scan" && request.method === "POST") return json(await scan(env));
       if (url.pathname === "/api/save" && request.method === "POST") {
