@@ -8,6 +8,16 @@ import { Game } from '@/types';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 
+
+const fallbackGames: Game[] = [
+  { _id: 'demo-lightning-roulette', title: 'Lightning Roulette', slug: 'lightning-roulette', provider: 'Evolution', category: 'live-casino', thumbnail: '⚡', description: 'Demo live-style roulette experience.', rtp: 97.30, volatility: 'medium', features: ['Live-style table', 'Lightning rounds'], minBet: 1, maxBet: 5000, isPopular: true, isNew: true, isFeatured: true, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+  { _id: 'demo-live-blackjack', title: 'Live Blackjack', slug: 'live-blackjack', provider: 'Evolution', category: 'live-casino', thumbnail: '🃏', description: 'Demo live-style blackjack table.', rtp: 99.50, volatility: 'low', features: ['Live-style table', 'Classic rules'], minBet: 1, maxBet: 5000, isPopular: true, isNew: false, isFeatured: true, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+  { _id: 'demo-live-baccarat', title: 'Live Baccarat', slug: 'live-baccarat', provider: 'Evolution', category: 'live-casino', thumbnail: '♦️', description: 'Demo live-style baccarat table.', rtp: 98.94, volatility: 'low', features: ['Live-style table', 'Classic baccarat'], minBet: 1, maxBet: 5000, isPopular: true, isNew: false, isFeatured: false, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+  { _id: 'demo-crazy-time', title: 'Crazy Time', slug: 'crazy-time', provider: 'Evolution', category: 'live-casino', thumbnail: '🎡', description: 'Demo live-style game show experience.', rtp: 96.08, volatility: 'high', features: ['Game show', 'Bonus rounds'], minBet: 1, maxBet: 5000, isPopular: true, isNew: true, isFeatured: true, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+  { _id: 'demo-live-roulette', title: 'Live Roulette', slug: 'live-roulette', provider: 'Pragmatic Play', category: 'live-casino', thumbnail: '🎯', description: 'Demo live-style roulette table.', rtp: 97.30, volatility: 'medium', features: ['Live-style table', 'European roulette'], minBet: 1, maxBet: 5000, isPopular: false, isNew: false, isFeatured: false, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+  { _id: 'demo-live-casino-vip', title: 'Live Casino VIP', slug: 'live-casino-vip', provider: 'Cassanova', category: 'live-casino', thumbnail: '👑', description: 'Demo VIP live-style casino room.', rtp: 98, volatility: 'medium', features: ['VIP room', 'Live-style table'], minBet: 5, maxBet: 10000, isPopular: false, isNew: true, isFeatured: true, hasJackpot: false, demoAvailable: true, launchUrl: '#' },
+];
+
 export default function GameDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -25,9 +35,13 @@ export default function GameDetailPage() {
         const slug = params.slug as string;
         
         const gameData = await api.games.getBySlug(slug);
-        
-        if (gameData._id) {
+        const fallbackGame = fallbackGames.find((item) => item.slug === slug);
+
+        if (gameData?._id) {
           setGame(gameData);
+        } else if (fallbackGame) {
+          setGame(fallbackGame);
+        } else {
           
           // Check if game is in user's favorites
           if (isAuthenticated && token && user) {
