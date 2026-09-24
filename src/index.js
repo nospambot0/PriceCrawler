@@ -261,7 +261,7 @@ async function scan(env) {
   const now = new Date().toISOString();
   const items = await fetchSource(env);
 
-  if (!env.DB) return { count: items.length, demo: !env.DEALS_SOURCE_URL };
+  if (!env.DB) return { count: items.length, configured: Boolean(env.SCRAPERAPI_KEY || env.DEALS_SOURCE_URL) };
 
   for (const raw of items) {
     if (!raw?.title || !raw?.store || raw?.price == null || !raw?.url) continue;
@@ -272,7 +272,6 @@ async function scan(env) {
 
     const typical = Number(raw.typical_price || raw.previous_price || price);
     const previous = raw.previous_price == null ? null : Number(raw.previous_price);
-    const score = scoreDeal(price, typical);
 
     const old = await env.DB.prepare("SELECT price, typical_price FROM deals WHERE id = ?").bind(id).first();
 
