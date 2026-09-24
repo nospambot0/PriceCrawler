@@ -14,3 +14,5 @@ This application intentionally does not perform password cracking, handshake cap
 
 ## Deploy
 Deploy as a Next.js application. No backend or database is required for the current browser-only audit mode.
+
+Cloudflare deployment uses the current Next.js 16 configuration.
