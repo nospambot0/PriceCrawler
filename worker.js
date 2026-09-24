@@ -27,7 +27,35 @@ function validProvider(value) {
   return provider;
 }
 
+const DEMO_PROVIDERS = [
+  { code: "DEMO_LIVE", name: "Demo Live Casino", status: 1 },
+  { code: "DEMO_SLOTS", name: "Demo Slots", status: 1 },
+  { code: "DEMO_TABLE", name: "Demo Table Games", status: 1 },
+];
+
+const DEMO_GAMES = {
+  DEMO_LIVE: [
+    { game_code: "demo_roulette", game_name: "Demo Roulette", status: 1 },
+    { game_code: "demo_blackjack", game_name: "Demo Blackjack", status: 1 },
+    { game_code: "demo_baccarat", game_name: "Demo Baccarat", status: 1 },
+  ],
+  DEMO_SLOTS: [
+    { game_code: "demo_slots_1", game_name: "Demo Fruit Slots", status: 1 },
+    { game_code: "demo_slots_2", game_name: "Demo Lucky 7", status: 1 },
+    { game_code: "demo_slots_3", game_name: "Demo Treasure", status: 1 },
+  ],
+  DEMO_TABLE: [
+    { game_code: "demo_poker", game_name: "Demo Poker", status: 1 },
+    { game_code: "demo_dice", game_name: "Demo Dice", status: 1 },
+  ],
+};
+
+function isDemo(env) {
+  return String(env.DEMO_MODE ?? "true").toLowerCase() !== "false";
+}
+
 async function fiversCall(env, method, params = {}) {
+  if (isDemo(env)) throw new Error("Demo mode does not call FiversCan");
   if (!env.FVS_API_URL || !env.FVS_AGENT_CODE || !env.FVS_AGENT_TOKEN) {
     throw new Error("FiversCan credentials are not configured");
   }
@@ -75,6 +103,43 @@ async function handleApi(request, env, url) {
     input = contentType.includes("application/json")
       ? (await request.json().catch(() => ({})))
       : Object.fromEntries(await request.formData());
+  }
+
+  if (isDemo(env) && action === "providers" && request.method === "GET") {
+    return json({ ok: true, demo: true, providers: DEMO_PROVIDERS });
+  }
+
+  if (isDemo(env) && action === "games" && request.method === "GET") {
+    const provider = validProvider(input.provider);
+    return json({ ok: true, demo: true, games: DEMO_GAMES[provider] || [] });
+  }
+
+  if (isDemo(env) && action === "balance" && request.method === "GET") {
+    validUser(input.user);
+    return json({ ok: true, demo: true, agent_balance: 100000, user_balance: 1000 });
+  }
+
+  if (isDemo(env) && action === "deposit" && request.method === "POST") {
+    validUser(input.user);
+    const amount = Number(input.amount);
+    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
+    return json({ ok: true, demo: true, agent_balance: 100000 - amount, user_balance: 1000 + amount });
+  }
+
+  if (isDemo(env) && action === "withdraw" && request.method === "POST") {
+    validUser(input.user);
+    const amount = Number(input.amount);
+    if (!(amount > 0)) return json({ ok: false, error: "amount must be greater than 0" }, 400);
+    return json({ ok: true, demo: true, agent_balance: 100000 + amount, user_balance: Math.max(0, 1000 - amount) });
+  }
+
+  if (isDemo(env) && action === "launch" && request.method === "POST") {
+    validUser(input.user);
+    validProvider(input.provider);
+    const game = String(input.game || "demo_lobby");
+    const title = encodeURIComponent(game.replaceAll("_", " ").replace(/^demo /i, ""));
+    const demoUrl = `https://example.com/?demo_game=${title}`;
+    return json({ ok: true, demo: true, launch_url: demoUrl });
   }
 
   if (action === "providers" && request.method === "GET") {
