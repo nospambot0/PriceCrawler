@@ -33,34 +33,45 @@ export default function GameDetailPage() {
     const fetchGameData = async () => {
       try {
         const slug = params.slug as string;
-        
         const gameData = await api.games.getBySlug(slug);
-        const fallbackGame = fallbackGames.find((item) => item.slug === slug);
+        const resolvedGame = gameData?._id
+          ? gameData
+          : fallbackGames.find((item) => item.slug === slug) || null;
 
-        if (gameData?._id) {
-          setGame(gameData);
-        } else if (fallbackGame) {
-          setGame(fallbackGame);
-        } else {
-          
-          // Check if game is in user's favorites
-          if (isAuthenticated && token && user) {
-            try {
-              const profileData = await api.user.getProfile(token);
-              setIsFavorite(profileData.favoriteGames?.includes(gameData._id) || false);
-            } catch {
-              // If profile fetch fails, just continue without favorite status
-            }
-          }
-          
-          const allGames = await api.games.getAll({ category: gameData.category });
-          const similar = allGames.filter((g: Game) => g._id !== gameData._id).slice(0, 4);
-          setSimilarGames(similar);
-        } else {
+        if (!resolvedGame) {
           setError('Game not found');
+          return;
+        }
+
+        setGame(resolvedGame);
+
+        if (isAuthenticated && token && user && resolvedGame._id) {
+          try {
+            const profileData = await api.user.getProfile(token);
+            setIsFavorite(profileData.favoriteGames?.includes(resolvedGame._id) || false);
+          } catch {
+            // Continue without favorite status.
+          }
+        }
+
+        try {
+          const allGames = await api.games.getAll({ category: resolvedGame.category });
+          const similar = Array.isArray(allGames)
+            ? allGames.filter((g: Game) => g._id !== resolvedGame._id).slice(0, 4)
+            : [];
+          setSimilarGames(similar.length ? similar : fallbackGames.filter((g) => g.slug !== resolvedGame.slug).slice(0, 4));
+        } catch {
+          setSimilarGames(fallbackGames.filter((g) => g.slug !== resolvedGame.slug).slice(0, 4));
         }
       } catch {
-        setError('Failed to load game details');
+        const slug = params.slug as string;
+        const fallbackGame = fallbackGames.find((item) => item.slug === slug);
+        if (fallbackGame) {
+          setGame(fallbackGame);
+          setSimilarGames(fallbackGames.filter((g) => g.slug !== slug).slice(0, 4));
+        } else {
+          setError('Failed to load game details');
+        }
       } finally {
         setIsLoading(false);
       }
