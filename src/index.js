@@ -51,7 +51,7 @@ function getQueries(env) {
     .split(",")
     .map(x => x.trim())
     .filter(Boolean)
-    .slice(0, 20);
+    .slice(0, 4);
 }
 
 async function scraperRequest(env, targetUrl, extra = {}) {
@@ -143,6 +143,8 @@ async function fetchAmazon(env, queries) {
 
   const all = [];
 
+  // Keep requests sequential. Sending all marketplace queries concurrently can
+  // exceed the ScraperAPI concurrent-thread allowance and produce HTTP 429.
   for (const query of queries) {
     const u = new URL("https://api.scraperapi.com/structured/amazon/search");
     u.searchParams.set("api_key", env.SCRAPERAPI_KEY);
@@ -182,6 +184,7 @@ async function fetchFlipkart(env, queries) {
 
   const all = [];
 
+  // Keep requests sequential to avoid bursts against the ScraperAPI limit.
   for (const query of queries) {
     const target = "https://www.flipkart.com/search?q=" + encodeURIComponent(query);
     try {
@@ -218,46 +221,11 @@ async function runDiagnostics(env) {
 
   if (!env.SCRAPERAPI_KEY) return result;
 
-  // Lightweight live connectivity checks. Never expose the API key.
-  try {
-    const u = new URL("https://api.scraperapi.com/structured/amazon/search");
-    u.searchParams.set("api_key", env.SCRAPERAPI_KEY);
-    u.searchParams.set("query", "iphone");
-    u.searchParams.set("country_code", "in");
-    u.searchParams.set("tld", "in");
-    u.searchParams.set("output_format", "json");
-    const r = await fetch(u.toString());
-    if (!r.ok) {
-      result.amazon = { status: "error", detail: "ScraperAPI HTTP " + r.status };
-    } else {
-      let data = {};
-      try { data = await r.json(); } catch (_) {}
-      const count = Array.isArray(data?.results) ? data.results.length : 0;
-      result.amazon = {
-        status: count > 0 ? "ok" : "connected",
-        detail: count > 0 ? count + " Amazon results received" : "ScraperAPI responded, but returned 0 Amazon results"
-      };
-    }
-  } catch (e) {
-    result.amazon = { status: "error", detail: e.message };
-  }
-
-  try {
-    const target = "https://www.flipkart.com/search?q=" + encodeURIComponent("iphone");
-    const r = await fetch(new URL("https://api.scraperapi.com/?api_key=" + encodeURIComponent(env.SCRAPERAPI_KEY) + "&url=" + encodeURIComponent(target) + "&country_code=in&render=true"));
-    if (!r.ok) {
-      result.flipkart = { status: "error", detail: "ScraperAPI HTTP " + r.status };
-    } else {
-      const body = await r.text();
-      const products = extractJsonLdProducts(body);
-      result.flipkart = {
-        status: products.length > 0 ? "ok" : "connected",
-        detail: products.length > 0 ? products.length + " Flipkart products parsed" : "ScraperAPI responded, but no structured Flipkart products were parsed"
-      };
-    }
-  } catch (e) {
-    result.flipkart = { status: "error", detail: e.message };
-  }
+  // Do not make extra ScraperAPI requests from the homepage diagnostics.
+  // The scanner itself performs the real connectivity checks, while keeping
+  // page loads from consuming credits/concurrency.
+  result.amazon = { status: "not tested", detail: "Checked during scan to avoid extra ScraperAPI requests" };
+  result.flipkart = { status: "not tested", detail: "Checked during scan to avoid extra ScraperAPI requests" };
 
   return result;
 }
@@ -275,10 +243,10 @@ async function fetchSource(env) {
   if (!env.SCRAPERAPI_KEY) return [];
 
   const queries = getQueries(env);
-  const [amazon, flipkart] = await Promise.all([
-    fetchAmazon(env, queries),
-    fetchFlipkart(env, queries)
-  ]);
+  // Do not run Amazon and Flipkart in parallel: that doubles concurrency
+  // immediately and was causing ScraperAPI HTTP 429 responses.
+  const amazon = await fetchAmazon(env, queries);
+  const flipkart = await fetchFlipkart(env, queries);
 
   const unique = new Map();
   for (const item of [...amazon, ...flipkart]) {
