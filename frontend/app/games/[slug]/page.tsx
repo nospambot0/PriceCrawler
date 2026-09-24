@@ -33,10 +33,16 @@ export default function GameDetailPage() {
     const fetchGameData = async () => {
       try {
         const slug = params.slug as string;
-        const gameData = await api.games.getBySlug(slug);
-        const resolvedGame = gameData?._id
-          ? gameData
-          : fallbackGames.find((item) => item.slug === slug) || null;
+        let gameData: Game | null = null;
+
+        try {
+          const response = await api.games.getBySlug(slug);
+          if (response?._id) gameData = response;
+        } catch {
+          // Use local demo data when the API has no matching game.
+        }
+
+        const resolvedGame = gameData || fallbackGames.find((item) => item.slug === slug) || null;
 
         if (!resolvedGame) {
           setError('Game not found');
@@ -45,7 +51,7 @@ export default function GameDetailPage() {
 
         setGame(resolvedGame);
 
-        if (isAuthenticated && token && user && resolvedGame._id) {
+        if (isAuthenticated && token && user && resolvedGame._id && !resolvedGame._id.startsWith('demo-')) {
           try {
             const profileData = await api.user.getProfile(token);
             setIsFavorite(profileData.favoriteGames?.includes(resolvedGame._id) || false);
