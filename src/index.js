@@ -193,8 +193,19 @@ async function fetchFlipkart(env, queries) {
 
 
 async function runDiagnostics(env) {
+  const secretPresent = typeof env.SCRAPERAPI_KEY === "string" && env.SCRAPERAPI_KEY.trim().length > 0;
+  const secretType = typeof env.SCRAPERAPI_KEY;
   const result = {
-    scraperApi: { status: env.SCRAPERAPI_KEY ? "configured" : "missing", detail: env.SCRAPERAPI_KEY ? "Secret detected by Worker" : "SCRAPERAPI_KEY is not available to this deployment" },
+    scraperApi: {
+      status: secretPresent ? "configured" : "missing",
+      detail: secretPresent
+        ? "Secret detected by Worker"
+        : "Worker runtime cannot see a non-empty SCRAPERAPI_KEY"
+    },
+    runtime: {
+      secretType,
+      secretLength: secretPresent ? env.SCRAPERAPI_KEY.length : 0
+    },
     amazon: { status: "not tested", detail: "Waiting for ScraperAPI" },
     flipkart: { status: "not tested", detail: "Waiting for ScraperAPI" }
   };
@@ -417,6 +428,7 @@ function renderApp(deals, savedOnly, message = "", diagnostics = null) {
         <div class="diag-item"><b>Worker</b><span class="ok">● Online</span><small>Cloudflare Worker is responding</small></div>
         <div class="diag-item"><b>Cloudflare D1</b><span class="${diagnostics.db ? "ok" : "bad"}">● ${diagnostics.db ? "Connected" : "Unavailable"}</span><small>${diagnostics.db ? "Database binding detected" : "DB binding is missing"}</small></div>
         <div class="diag-item"><b>ScraperAPI</b><span class="${diagnostics.scraperApi.status === "configured" ? "ok" : "bad"}">● ${esc(diagnostics.scraperApi.status)}</span><small>${esc(diagnostics.scraperApi.detail)}</small></div>
+        <div class="diag-item"><b>Secret Runtime</b><span class="${diagnostics.runtime.secretLength > 0 ? "ok" : "bad"}">● ${diagnostics.runtime.secretLength > 0 ? "Detected" : "Not detected"}</span><small>Type: ${esc(diagnostics.runtime.secretType)} • Length: ${diagnostics.runtime.secretLength}</small></div>
         <div class="diag-item"><b>Amazon.in</b><span class="${diagnostics.amazon.status === "ok" ? "ok" : diagnostics.amazon.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.amazon.status)}</span><small>${esc(diagnostics.amazon.detail)}</small></div>
         <div class="diag-item"><b>Flipkart</b><span class="${diagnostics.flipkart.status === "ok" ? "ok" : diagnostics.flipkart.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.flipkart.status)}</span><small>${esc(diagnostics.flipkart.detail)}</small></div>
       </div>
