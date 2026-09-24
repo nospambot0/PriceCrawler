@@ -1,28 +1,3 @@
-const DEMO_DEALS = [
-  {
-    id: "demo-airpods-pro",
-    title: "Apple AirPods Pro",
-    store: "Amazon",
-    price: 8999,
-    previous_price: 14900,
-    typical_price: 14900,
-    currency: "INR",
-    url: "https://www.amazon.in/",
-    image_url: "https://images.unsplash.com/photo-1606220945770-b5b6c2c55bf1?auto=format&fit=crop&w=800&q=80"
-  },
-  {
-    id: "demo-samsung-tv",
-    title: "Samsung 55-inch 4K Smart TV",
-    store: "Flipkart",
-    price: 32999,
-    previous_price: 49999,
-    typical_price: 49999,
-    currency: "INR",
-    url: "https://www.flipkart.com/",
-    image_url: "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=800&q=80"
-  }
-];
-
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -58,7 +33,7 @@ function money(n, currency = "INR") {
 }
 
 async function fetchSource(env) {
-  if (!env.DEALS_SOURCE_URL) return DEMO_DEALS;
+  if (!env.DEALS_SOURCE_URL) return [];
   const r = await fetch(env.DEALS_SOURCE_URL, {
     headers: { "accept": "application/json", "cache-control": "no-cache" }
   });
@@ -100,26 +75,8 @@ async function initDb(env) {
 }
 
 async function seedDemoIfEmpty(env) {
-  if (!env.DB) return;
-  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM deals").first();
-  if (Number(row?.n || 0) > 0) return;
-
-  const now = new Date().toISOString();
-  for (const d of DEMO_DEALS) {
-    await env.DB.prepare(`INSERT OR IGNORE INTO deals
-      (id,title,store,price,previous_price,typical_price,currency,url,image_url,detected_at,updated_at,score)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(
-        d.id,d.title,d.store,d.price,d.previous_price,d.typical_price,
-        d.currency,d.url,d.image_url,now,now,scoreDeal(d.price,d.typical_price)
-      ).run();
-
-    await env.DB.prepare(
-      "INSERT OR IGNORE INTO price_history (deal_id,price,captured_at) VALUES (?,?,?)"
-    ).bind(d.id,d.price,now).run();
-  }
+  // Intentionally empty: PriceCrawler never creates fake/demo deals.
 }
-
 async function scan(env) {
   const now = new Date().toISOString();
   const items = await fetchSource(env);
@@ -164,13 +121,7 @@ async function scan(env) {
 }
 
 async function getDeals(env, savedOnly = false) {
-  if (!env.DB) {
-    return DEMO_DEALS.map(d => ({
-      ...d,
-      score: scoreDeal(d.price,d.typical_price),
-      saved: false
-    }));
-  }
+  if (!env.DB) return [];
 
   const query = savedOnly
     ? `SELECT d.*, 1 AS saved
@@ -323,7 +274,9 @@ export default {
 
       const message = url.searchParams.get("scan_error")
         ? "Fresh scan failed, so the last available deals are shown."
-        : "";
+        : (!url.searchParams.get("view") && !env.DEALS_SOURCE_URL
+          ? "No price source is connected yet. Add DEALS_SOURCE_URL to start showing real deals."
+          : "");
 
       return new Response(renderApp(deals,savedOnly,message),{
         headers:{
