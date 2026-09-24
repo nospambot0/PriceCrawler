@@ -81,17 +81,9 @@ async function fiversCall(env, method, params = {}) {
 }
 
 async function cachedCatalog(request, env, key, loader) {
-  const cache = caches.default;
-  const cacheRequest = new Request(new URL(`https://catalog.local/${key}`), { method: "GET" });
-  const cached = await cache.match(cacheRequest);
-  if (cached) return cached;
-
-  const data = await loader();
-  const response = json(data);
-  const cacheResponse = new Response(response.body, response);
-  cacheResponse.headers.set("cache-control", `public, max-age=${CATALOG_TTL}`);
-  await cache.put(cacheRequest, cacheResponse.clone());
-  return cacheResponse;
+  // Demo mode intentionally avoids the Cloudflare Cache API so the demo works
+  // immediately on every Worker deployment.
+  return json(await loader());
 }
 
 async function handleApi(request, env, url) {
