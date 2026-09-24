@@ -43,6 +43,7 @@ mongoose
 
     // Optional demo-user seed. Enable with SEED_DEMO_USER=true and provide
     // DEMO_USER_EMAIL / DEMO_USER_PASSWORD in the hosting environment.
+    // DEMO_USER_BALANCE sets the demo account's starting/current balance.
     if (process.env.SEED_DEMO_USER === 'true') {
       const email = process.env.DEMO_USER_EMAIL;
       const password = process.env.DEMO_USER_PASSWORD;
@@ -56,10 +57,18 @@ mongoose
             email,
             password: hashedPassword,
             isVerified: true,
+            balance: Number.isFinite(Number(process.env.DEMO_USER_BALANCE)) ? Number(process.env.DEMO_USER_BALANCE) : 0,
           });
           console.log(`Demo user created: ${email}`);
         } else {
-          console.log(`Demo user already exists: ${email}`);
+          const balance = Number(process.env.DEMO_USER_BALANCE);
+          if (Number.isFinite(balance)) {
+            existing.balance = balance;
+            await existing.save();
+            console.log(`Demo user balance set: ${email} -> ${balance}`);
+          } else {
+            console.log(`Demo user already exists: ${email}`);
+          }
         }
       }
     }
