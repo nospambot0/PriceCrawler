@@ -518,16 +518,15 @@ export default {
       await seedDemoIfEmpty(env);
 
       const savedOnly = url.searchParams.get("view") === "saved";
-      let deals = [];
-      let diagnostics;
-
-      try {
-        await scan(env);
-      } catch (_) {}
-
-      deals = await getDeals(env,savedOnly);
-      diagnostics = await runDiagnostics(env);
+      // Render immediately from D1. Do not block the page on marketplace scraping.
+      // A background scan refreshes the database after the response is sent.
+      const deals = await getDeals(env,savedOnly);
+      const diagnostics = await runDiagnostics(env);
       diagnostics.db = Boolean(env.DB);
+
+      if (env.SCRAPERAPI_KEY || env.DEALS_SOURCE_URL) {
+        ctx.waitUntil(scan(env).catch(() => {}));
+      }
 
       const message = url.searchParams.get("scan_error")
         ? "Fresh scan failed, so the last available deals are shown."
