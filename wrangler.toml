@@ -1,0 +1,11 @@
+name = "pricecrawler"
+main = "src/index.js"
+compatibility_date = "2026-09-25"
+
+[triggers]
+crons = ["*/3 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pricecrawler-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
