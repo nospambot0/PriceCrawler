@@ -178,7 +178,7 @@ async function handleApi(request, env, url) {
       lobby_url: lobby,
     });
     const launchUrl = data.launch_url;
-    if (!/^https?:\\/\\//i.test(launchUrl || "")) throw new Error("game service returned an invalid launch URL");
+    if (!/^https?:\/\//i.test(launchUrl || "")) throw new Error("game service returned an invalid launch URL");
     return json({ ok: true, launch_url: launchUrl });
   }
 
