@@ -79,7 +79,9 @@
   <script>
     // ---- api.php helper: GET with ?query or POST a JSON body; resolves {ok:true,...}, throws on {ok:false,error} ----
     async function api(action, { query = {}, body } = {}) {
-      const path = `/api/${encodeURIComponent(action)}`;\n      const queryString = new URLSearchParams(query).toString();\n      const url = `${path}${queryString ? `?${queryString}` : ''}`;
+      const path = `/api/${encodeURIComponent(action)}`;
+      const queryString = new URLSearchParams(query).toString();
+      const url = `${path}${queryString ? `?${queryString}` : ''}`;
       const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
       const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
       if (!data.ok) throw new Error(data.error + (data.detail ? ` (${data.detail})` : ''));
