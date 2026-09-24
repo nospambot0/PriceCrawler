@@ -214,7 +214,6 @@ export default {
       }
 
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-      if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
         return await handleApi(request, env, url);
       }
 
