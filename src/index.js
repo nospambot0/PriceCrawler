@@ -119,6 +119,21 @@ async function initDb(env) {
   ]);
 }
 
+async function seedDemoIfEmpty(env) {
+  if (!env.DB) return;
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM deals").first();
+  if (Number(row?.n || 0) > 0) return;
+  const now = new Date().toISOString();
+  for (const d of DEMO_DEALS) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO deals
+      (id,title,store,price,previous_price,typical_price,currency,url,image_url,detected_at,updated_at,score)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(d.id,d.title,d.store,d.price,d.previous_price,d.typical_price,d.currency,d.url,d.image_url,now,now,scoreDeal(d.price,d.typical_price)).run();
+    await env.DB.prepare("INSERT INTO price_history (deal_id,price,captured_at) VALUES (?,?,?)")
+      .bind(d.id,d.price,now).run();
+  }
+}
+
 async function getDeals(env, savedOnly = false) {
   if (!env.DB) return DEMO_DEALS.map(x => ({ ...x, score: scoreDeal(x.price, x.typical_price), saved: false }));
   const query = savedOnly
@@ -175,7 +190,7 @@ async function load(){
 async function scanNow(){
   const b=document.querySelector('.scan'); b.disabled=true; b.textContent='Scanning…';
   try {
-    const r=await fetch('/api/scan',{method:'POST'});
+    const r=await fetch('/api/scan');
     const data=await r.json();
     if(!r.ok) throw new Error(data.error || 'Scan failed');
     document.getElementById('last').textContent='Last scan: '+new Date().toLocaleTimeString();
@@ -196,8 +211,11 @@ export default {
     const url = new URL(request.url);
     try {
       await initDb(env);
-      if (url.pathname === "/api/deals") return json(await getDeals(env, url.searchParams.get("view")==="saved"));
-      if (url.pathname === "/api/scan" && request.method === "POST") return json(await scan(env));
+      if (url.pathname === "/api/deals") {
+        await seedDemoIfEmpty(env);
+        return json(await getDeals(env, url.searchParams.get("view")==="saved"));
+      }
+      if (url.pathname === "/api/scan" && (request.method === "POST" || request.method === "GET")) return json(await scan(env));
       if (url.pathname === "/api/save" && request.method === "POST") {
         const { deal_id } = await request.json();
         if (!env.DB) return json({ ok:true });
