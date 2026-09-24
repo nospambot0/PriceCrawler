@@ -204,7 +204,8 @@ async function runDiagnostics(env) {
     },
     runtime: {
       secretType,
-      secretLength: secretPresent ? env.SCRAPERAPI_KEY.length : 0
+      secretLength: secretPresent ? env.SCRAPERAPI_KEY.length : 0,
+      bindings: Object.keys(env || {}).filter(k => !/key|secret|token|password/i.test(k)).join(", ") || "none"
     },
     amazon: { status: "not tested", detail: "Waiting for ScraperAPI" },
     flipkart: { status: "not tested", detail: "Waiting for ScraperAPI" }
@@ -428,7 +429,7 @@ function renderApp(deals, savedOnly, message = "", diagnostics = null) {
         <div class="diag-item"><b>Worker</b><span class="ok">● Online</span><small>Cloudflare Worker is responding</small></div>
         <div class="diag-item"><b>Cloudflare D1</b><span class="${diagnostics.db ? "ok" : "bad"}">● ${diagnostics.db ? "Connected" : "Unavailable"}</span><small>${diagnostics.db ? "Database binding detected" : "DB binding is missing"}</small></div>
         <div class="diag-item"><b>ScraperAPI</b><span class="${diagnostics.scraperApi.status === "configured" ? "ok" : "bad"}">● ${esc(diagnostics.scraperApi.status)}</span><small>${esc(diagnostics.scraperApi.detail)}</small></div>
-        <div class="diag-item"><b>Secret Runtime</b><span class="${diagnostics.runtime.secretLength > 0 ? "ok" : "bad"}">● ${diagnostics.runtime.secretLength > 0 ? "Detected" : "Not detected"}</span><small>Type: ${esc(diagnostics.runtime.secretType)} • Length: ${diagnostics.runtime.secretLength}</small></div>
+        <div class="diag-item"><b>Secret Runtime</b><span class="${diagnostics.runtime.secretLength > 0 ? "ok" : "bad"}">● ${diagnostics.runtime.secretLength > 0 ? "Detected" : "Not detected"}</span><small>Type: ${esc(diagnostics.runtime.secretType)} • Length: ${diagnostics.runtime.secretLength}</small><small>Non-secret bindings: ${esc(diagnostics.runtime.bindings)}</small></div>
         <div class="diag-item"><b>Amazon.in</b><span class="${diagnostics.amazon.status === "ok" ? "ok" : diagnostics.amazon.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.amazon.status)}</span><small>${esc(diagnostics.amazon.detail)}</small></div>
         <div class="diag-item"><b>Flipkart</b><span class="${diagnostics.flipkart.status === "ok" ? "ok" : diagnostics.flipkart.status === "connected" ? "warn" : "bad"}">● ${esc(diagnostics.flipkart.status)}</span><small>${esc(diagnostics.flipkart.detail)}</small></div>
       </div>
